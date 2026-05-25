@@ -1,10 +1,22 @@
-import { View, Text, ScrollView, TextInput, StyleSheet } from 'react-native';
-import React from 'react';
+import { View, Text, ScrollView, TextInput, StyleSheet, ActivityIndicator, Pressable, Alert, Image } from 'react-native';
+import React, { useState, useEffect } from 'react';
 import { CategoryCard } from '@/components/CategoryCard';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from '@/components/ThemedText';
+import { useThemeColor } from '@/hooks/useThemeColor';
+import { useAudio } from '@/contexts/AudioContext';
+import * as FileSystem from 'expo-file-system';
+
+interface SearchResult {
+    id: string;
+    title: string;
+    author: string;
+    img: string;
+    type: string;
+}
 
 const categories = [
+    // ... categories kept as before ...
     {
         "artworkBgColor": "#031312",
         "artworkImage": "https://is1-ssl.mzstatic.com/image/thumb/Features114/v4/71/cb/37/71cb3751-1b55-41ae-9993-68f0682189fc/U0gtTVMtV1ctSGFsbG93ZWVuLU92ZXJhcmNoaW5nLnBuZw.png/1040x586sr.webp",
@@ -253,23 +265,149 @@ const categories = [
 ]
 
 export default function SearchScreen() {
+    const [query, setQuery] = useState('');
+    const [results, setResults] = useState<SearchResult[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [playingId, setPlayingId] = useState<string | null>(null);
+    const themeColor = useThemeColor({}, 'text');
+    const { playSound } = useAudio();
+
+    const handleSearch = async (text: string) => {
+        setQuery(text);
+        if (text.length > 2) {
+            setLoading(true);
+            try {
+                const response = await fetch(`https://api.ytify.workers.dev/search?q=${encodeURIComponent(text)}&f=song`);
+                const data = await response.json();
+                setResults(data);
+            } catch (error) {
+                console.error('Error fetching search results:', error);
+            } finally {
+                setLoading(false);
+            }
+        } else {
+            setResults([]);
+        }
+    };
+
+    const handlePlay = async (result: SearchResult) => {
+        if (playingId === result.id) return;
+        
+        try {
+            setPlayingId(result.id);
+            const response = await fetch(`https://yt.omada.cafe/api/v1/videos/${result.id}`);
+            const data = await response.json();
+            
+            // Find best audio format (usually itag 140 is 128kbps m4a)
+            const audioFormat = data.adaptiveFormats.find((f: any) => f.type.startsWith('audio/mp4')) || 
+                                data.adaptiveFormats.find((f: any) => f.type.startsWith('audio/')) ||
+                                data.formatStreams[0];
+            
+            const audioUrl = audioFormat?.url;
+            
+            if (audioUrl) {
+                playSound({
+                    id: result.id,
+                    title: result.title,
+                    artist: result.author,
+                    artwork: `https://i.ytimg.com/vi/${result.id}/hqdefault.jpg`,
+                    mp4_link: audioUrl
+                });
+            } else {
+                Alert.alert('Error', 'No playable audio found for this song.');
+            }
+        } catch (error) {
+            console.error('Error fetching audio details:', error);
+            Alert.alert('Error', 'Failed to load audio for this song.');
+        } finally {
+            setPlayingId(null);
+        }
+    };
+
+    const handleDownload = async (result: SearchResult) => {
+        try {
+            // We need the actual URL from omada first if we don't have it
+            const response = await fetch(`https://yt.omada.cafe/api/v1/videos/${result.id}`);
+            const data = await response.json();
+            const audioFormat = data.adaptiveFormats.find((f: any) => f.type.startsWith('audio/mp4'));
+            const audioUrl = audioFormat?.url;
+
+            if (!audioUrl) {
+                Alert.alert('Error', 'No downloadable audio found.');
+                return;
+            }
+
+            const fileUri = `${FileSystem.documentDirectory}${result.id}.mp4`;
+            const downloadRes = await FileSystem.downloadAsync(audioUrl, fileUri);
+            if (downloadRes.status === 200) {
+                Alert.alert('Success', `Downloaded: ${result.title}`);
+            }
+        } catch (error) {
+            console.error('Error downloading:', error);
+            Alert.alert('Error', 'Failed to download song');
+        }
+    };
+
     return (
         <ScrollView
             style={styles.container}
             contentInsetAdjustmentBehavior="automatic"
         >
-            <ThemedText style={styles.title}>Browse Categories</ThemedText>
-            <View style={styles.categoriesContainer}>
-                {categories.map((category, index) => (
-                    <View key={index} style={styles.categoryWrapper}>
-                        <CategoryCard
-                            title={category.title}
-                            backgroundColor={category.artworkBgColor}
-                            imageUrl={category.artworkImage}
-                        />
-                    </View>
-                ))}
+            <View style={styles.searchBar}>
+                <Ionicons name="search" size={20} color={themeColor} />
+                <TextInput
+                    style={[styles.searchInput, { color: themeColor }]}
+                    placeholder="Artists, songs, lyrics, and more"
+                    placeholderTextColor="#8e8e93"
+                    value={query}
+                    onChangeText={handleSearch}
+                />
             </View>
+            
+            {loading ? (
+                <ActivityIndicator style={{ marginTop: 20 }} />
+            ) : results.length > 0 ? (
+                <View style={styles.resultsContainer}>
+                    {results.map((result) => (
+                        <Pressable 
+                            key={result.id} 
+                            style={styles.resultItem}
+                            onPress={() => handlePlay(result)}
+                        >
+                            <Image 
+                                source={{ uri: `https://i.ytimg.com/vi/${result.id}/mqdefault.jpg` }} 
+                                style={styles.thumbnail} 
+                            />
+                            <View style={styles.songInfo}>
+                                <ThemedText style={styles.songTitle} numberOfLines={1}>{result.title}</ThemedText>
+                                <ThemedText style={styles.songArtist} numberOfLines={1}>{result.author}</ThemedText>
+                            </View>
+                            {playingId === result.id ? (
+                                <ActivityIndicator size="small" style={{ marginRight: 8 }} />
+                            ) : (
+                                <Pressable onPress={() => handleDownload(result)} style={styles.downloadButton}>
+                                    <Ionicons name="download-outline" size={20} color={themeColor} />
+                                </Pressable>
+                            )}
+                        </Pressable>
+                    ))}
+                </View>
+            ) : (
+                <>
+                    <ThemedText style={styles.title}>Browse Categories</ThemedText>
+                    <View style={styles.categoriesContainer}>
+                        {categories.map((category, index) => (
+                            <View key={index} style={styles.categoryWrapper}>
+                                <CategoryCard
+                                    title={category.title}
+                                    backgroundColor={category.artworkBgColor}
+                                    imageUrl={category.artworkImage}
+                                />
+                            </View>
+                        ))}
+                    </View>
+                </>
+            )}
         </ScrollView>
     );
 }
@@ -283,7 +421,6 @@ const styles = StyleSheet.create({
     },
     container: {
         flex: 1,
-        // backgroundColor: '#fff',
     },
     categoriesContainer: {
         flexDirection: 'row',
@@ -294,4 +431,50 @@ const styles = StyleSheet.create({
     categoryWrapper: {
         width: '48%',
     },
-}); 
+    searchBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f0f0f0',
+        borderRadius: 10,
+        margin: 16,
+        padding: 10,
+    },
+    searchInput: {
+        marginLeft: 8,
+        flex: 1,
+        fontSize: 17,
+    },
+    resultsContainer: {
+        paddingHorizontal: 16,
+    },
+    resultItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 8,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: '#3c3c43',
+    },
+    thumbnail: {
+        width: 48,
+        height: 48,
+        borderRadius: 4,
+        backgroundColor: '#2c2c2e',
+    },
+    songInfo: {
+        flex: 1,
+        marginLeft: 12,
+        justifyContent: 'center',
+    },
+    songTitle: {
+        fontSize: 17,
+        fontWeight: '600',
+    },
+    songArtist: {
+        fontSize: 14,
+        color: '#8e8e93',
+        marginTop: 2,
+    },
+    downloadButton: {
+        padding: 8,
+    },
+});

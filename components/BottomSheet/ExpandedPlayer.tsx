@@ -1,13 +1,15 @@
-import { View as ThemedView, StyleSheet, Image, Pressable, Dimensions, ScrollView } from 'react-native';
+import { View as ThemedView, StyleSheet, Image, Pressable, Dimensions, ScrollView, ImageBackground } from 'react-native';
+import { BlurView } from 'expo-blur';
+
 import { StatusBar } from 'expo-status-bar';
 import { ThemedText } from '@/components/ThemedText';
 // import { ThemedView } from '@/components/ThemedView';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
 import { useEffect, useState, useCallback } from 'react';
 import { useAudio } from '@/contexts/AudioContext';
 const { width } = Dimensions.get('window');
+
 import {
     useSafeAreaInsets,
 } from 'react-native-safe-area-context';
@@ -44,7 +46,7 @@ export function ExpandedPlayer({ scrollComponent }: ExpandedPlayerProps) {
         position,
         duration,
         togglePlayPause,
-        sound,
+        player,
         currentSong,
         playNextSong,
         playPreviousSong
@@ -52,24 +54,24 @@ export function ExpandedPlayer({ scrollComponent }: ExpandedPlayerProps) {
     const insets = useSafeAreaInsets();
 
     const colorToUse = currentSong?.artwork_bg_color || "#000000";
-    const colors = [colorToUse, shadeColor(colorToUse, -50)];
+    const colors: [string, string, ...string[]] = [colorToUse, shadeColor(colorToUse, -50)];
 
     const handleSkipForward = async () => {
-        if (sound) {
-            await sound.setPositionAsync(Math.min(duration, position + 10000));
+        if (player) {
+            player.seekTo(Math.min(duration, position + 10));
         }
     };
 
     const handleSkipBackward = async () => {
-        if (sound) {
-            await sound.setPositionAsync(Math.max(0, position - 10000));
+        if (player) {
+            player.seekTo(Math.max(0, position - 10));
         }
     };
 
-    const formatTime = (millis: number) => {
-        const minutes = Math.floor(millis / 60000);
-        const seconds = ((millis % 60000) / 1000).toFixed(0);
-        return `${minutes}:${Number(seconds) < 10 ? '0' : ''}${seconds}`;
+    const formatTime = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
     };
 
     const progress = duration > 0 ? (position / duration) * 100 : 0;
@@ -94,12 +96,20 @@ export function ExpandedPlayer({ scrollComponent }: ExpandedPlayerProps) {
     ];
 
     return (
-        <LinearGradient
-            colors={colors}
-            style={[styles.rootContainer, { paddingTop: insets.top }]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-        >
+            <ImageBackground
+        source={{ uri: currentSong?.artwork }}
+        style={[styles.rootContainer
+            , { paddingTop: insets.top }
+        ]}
+        imageStyle={styles.backgroundImage}
+    >
+
+{/* <LinearGradient
+    colors={colors}
+    style={[styles.rootContainer, { paddingTop: insets.top, backgroundImage: currentSong?.artwork }]}
+    // start={{ x: 0, y: 0 }}
+    // end={{ x: 1, y: 0 }}
+> */}
             <ThemedView style={styles.dragHandleContainer}>
                 <ThemedView style={styles.dragHandle} />
             </ThemedView>
@@ -109,13 +119,24 @@ export function ExpandedPlayer({ scrollComponent }: ExpandedPlayerProps) {
                 showsVerticalScrollIndicator={false}
             >
                 <ThemedView style={styles.container}>
-                    <ThemedView style={styles.artworkContainer}>
+                    {/* <ThemedView style={styles.artworkContainer}>
                         <Image
                             source={{ uri: currentSong?.artwork }}
                             style={styles.artwork}
                         />
-                    </ThemedView>
+                    </ThemedView> */}
 
+<BlurView
+  intensity={25}
+//   tint="light"
+  style={{
+    // height: "105%",
+    // width: '115%',
+    flex: 1,
+    justifyContent: 'space-between',
+  }}
+>
+  {/* Your controls content */}
                     <ThemedView style={styles.controls}>
 
                         <ThemedView style={styles.titleContainer}>
@@ -213,6 +234,8 @@ export function ExpandedPlayer({ scrollComponent }: ExpandedPlayerProps) {
 
 
                     </ThemedView>
+</BlurView>
+
 
                     {/* Add lyrics section after the controls */}
                     <ThemedView style={styles.lyricsContainer}>
@@ -230,17 +253,28 @@ export function ExpandedPlayer({ scrollComponent }: ExpandedPlayerProps) {
                     </ThemedView>
                 </ThemedView>
             </ScrollComponentToUse>
-        </LinearGradient>
+        {/* </LinearGradient> */}
+    </ImageBackground>
+
     );
 }
 
 const styles = StyleSheet.create({
     rootContainer: {
         flex: 1,
-        height: '100%',
+        height: '120%',
         width: '100%',
         borderTopLeftRadius: 40,
         borderTopRightRadius: 40,
+    },
+    backgroundImage: {
+    borderTopLeftRadius: 40,
+    borderTopRightRadius: 40,
+    top: -100,
+    },
+    gradientOverlay: {
+        flex: 1,
+        width: '100%',
     },
     dragHandle: {
         width: 40,
@@ -254,7 +288,8 @@ const styles = StyleSheet.create({
         flex: 1,
         alignItems: 'center',
         padding: 20,
-        paddingTop: 30,
+        // paddingTop: 30,
+        paddingTop: 400,
 
         backgroundColor: 'transparent',
         justifyContent: 'space-between',
@@ -274,15 +309,18 @@ const styles = StyleSheet.create({
         marginBottom: 34,
     },
     artwork: {
-        width: width - 52,
+        width: width - 72,
         height: width - 52,
         borderRadius: 8,
     },
     controls: {
-        width: '100%',
+        width: '93%',
         backgroundColor: 'transparent',
         flex: 1,
         justifyContent: 'space-between',
+        // height: 100
+    // filter: 'blur(10px)', // or blur(10) depending on RN version
+
     },
     titleContainer: {
         // marginBottom: -30,
@@ -332,7 +370,7 @@ const styles = StyleSheet.create({
     timeContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginBottom: 20,
+        marginBottom: 10,
         backgroundColor: 'transparent',
     },
     timeText: {

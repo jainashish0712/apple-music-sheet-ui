@@ -2,12 +2,18 @@ import { StyleSheet, Pressable, Image, Platform } from 'react-native';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
 import { useState, useEffect } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useAudio } from '@/contexts/AudioContext';
+
+interface MiniPlayerProps {
+    onPress: () => void;
+    song: any;
+    isPlaying: boolean;
+    onPlayPause: () => void;
+}
 
 export function MiniPlayer({ onPress, song, isPlaying, onPlayPause }: MiniPlayerProps) {
     const insets = useSafeAreaInsets();
@@ -137,10 +143,3 @@ const styles = StyleSheet.create({
     },
 });
 
-interface MiniPlayerProps {
-    onPress: () => void;
-    song: any;
-    sound?: Audio.Sound | null;
-    isPlaying: boolean;
-    onPlayPause: () => void;
-}

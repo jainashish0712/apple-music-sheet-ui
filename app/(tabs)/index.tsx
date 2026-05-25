@@ -12,10 +12,11 @@ import { MusicVisualizer } from '@/components/MusicVisualizer';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
 interface Song {
-  id: string;
+  id: number;
   title: string;
   artist: string;
   artwork: string;
+  mp4_link: string;
 }
 
 export default function HomeScreen() {
@@ -144,7 +145,7 @@ export default function HomeScreen() {
         <FlatList
           data={songs}
           renderItem={renderSongItem}
-          keyExtractor={item => item.id}
+          keyExtractor={item => item.id.toString()}
           scrollEnabled={false}
         />
       </ParallaxScrollView>

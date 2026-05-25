@@ -1,25 +1,22 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Audio } from 'expo-av';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { songs } from '@/data/songs.json';
 
 interface Song {
-    id: number;
+    id: number | string;
     title: string;
     artist: string;
     artwork: string;
     artwork_bg_color?: string;
-    mp4_link?: string;
+    mp4_link: string;
 }
 
 interface AudioContextType {
-    sound: Audio.Sound | null;
+    player: any;
     isPlaying: boolean;
     currentSong: Song | null;
     position: number;
     duration: number;
-    setSound: (sound: Audio.Sound | null) => void;
-    setIsPlaying: (isPlaying: boolean) => void;
-    setCurrentSong: (song: Song) => void;
     playSound: (song: Song) => Promise<void>;
     pauseSound: () => Promise<void>;
     togglePlayPause: () => Promise<void>;
@@ -30,117 +27,71 @@ interface AudioContextType {
 const AudioContext = createContext<AudioContextType | undefined>(undefined);
 
 export function AudioProvider({ children }: { children: React.ReactNode }) {
-    const [sound, setSound] = useState<Audio.Sound | null>(null);
-    const [isPlaying, setIsPlaying] = useState(false);
     const [currentSong, setCurrentSong] = useState<Song | null>(null);
-    const [position, setPosition] = useState(0);
-    const [duration, setDuration] = useState(0);
+    const player = useAudioPlayer();
+    const status = useAudioPlayerStatus(player);
 
+    // Watch for song changes and update player source
     useEffect(() => {
-        return () => {
-            if (sound) {
-                sound.unloadAsync();
-            }
-        };
-    }, []);
-
-    useEffect(() => {
-        const setupAudio = async () => {
-            try {
-                await Audio.setAudioModeAsync({
-                    playsInSilentModeIOS: true,
-                    staysActiveInBackground: true,
-                    shouldDuckAndroid: true,
-                });
-            } catch (error) {
-                console.error('Error setting up audio mode:', error);
-            }
-        };
-
-        setupAudio();
-    }, []);
-
-    const playSound = async (song: Song) => {
-        try {
-            // If there's already a sound playing, stop it
-            if (sound) {
-                await sound.unloadAsync();
-            }
-
-            const { sound: newSound } = await Audio.Sound.createAsync(
-                { uri: song.mp4_link },
-                { shouldPlay: true },
-                onPlaybackStatusUpdate
-            );
-
-            setSound(newSound);
-            setCurrentSong(song);
-            setIsPlaying(true);
-            await newSound.playAsync();
-        } catch (error) {
-            console.error('Error playing sound:', error);
+        if (currentSong?.mp4_link) {
+            console.log('Replacing source with:', currentSong.mp4_link);
+            player.replace({ uri: currentSong.mp4_link });
+            player.play();
         }
-    };
-
-    const pauseSound = async () => {
-        if (sound) {
-            await sound.pauseAsync();
-            setIsPlaying(false);
-        }
-    };
-
-    const togglePlayPause = async () => {
-        if (!sound || !currentSong) return;
-
-        if (isPlaying) {
-            await pauseSound();
-        } else {
-            await sound.playAsync();
-            setIsPlaying(true);
-        }
-    };
-
-    const onPlaybackStatusUpdate = useCallback(async (status: Audio.PlaybackStatus) => {
-        if (!status.isLoaded) return;
-
-        setPosition(status.positionMillis);
-        setDuration(status.durationMillis || 0);
-        setIsPlaying(status.isPlaying);
-
-        // Check if the song has finished and isn't already loading the next song
-        if (status.didJustFinish && !status.isPlaying) {
-            console.log('Song finished, playing next song'); // Debug log
-            await playNextSong();
-        }
-    }, [playNextSong]);
+    }, [currentSong?.id]);
 
     const playNextSong = useCallback(async () => {
         const currentIndex = songs.findIndex(song => song.id === currentSong?.id);
         if (currentIndex === -1) return;
 
-        const nextSong = songs[(currentIndex + 1) % songs.length];
-        await playSound(nextSong);
-    }, [currentSong, songs]);
+        const nextSong = songs[(currentIndex + 1) % songs.length] as Song;
+        setCurrentSong(nextSong);
+    }, [currentSong]);
 
     const playPreviousSong = useCallback(async () => {
         const currentIndex = songs.findIndex(song => song.id === currentSong?.id);
         if (currentIndex === -1) return;
 
         const previousIndex = currentIndex === 0 ? songs.length - 1 : currentIndex - 1;
-        const previousSong = songs[previousIndex];
-        await playSound(previousSong);
-    }, [currentSong, songs]);
+        const previousSong = songs[previousIndex] as Song;
+        setCurrentSong(previousSong);
+    }, [currentSong]);
+
+    useEffect(() => {
+        if (status.didJustFinish) {
+            playNextSong();
+        }
+    }, [status.didJustFinish, playNextSong]);
+
+    const playSound = async (song: Song) => {
+        console.log('playSound called for:', song.title);
+        if (currentSong?.id !== song.id) {
+            setCurrentSong(song);
+        } else {
+            player.play();
+        }
+    };
+
+    const pauseSound = async () => {
+        player.pause();
+    };
+
+    const togglePlayPause = async () => {
+        console.log('togglePlayPause. Playing:', status.playing);
+        if (status.playing) {
+            player.pause();
+        } else {
+            player.play();
+        }
+    };
 
     return (
         <AudioContext.Provider value={{
-            sound,
-            isPlaying,
+            player,
+            isPlaying: status.playing,
             currentSong,
-            position,
-            duration,
-            setSound,
-            setIsPlaying,
-            setCurrentSong,
+            position: status.currentTime,
+            duration: status.duration,
             playSound,
             pauseSound,
             togglePlayPause,

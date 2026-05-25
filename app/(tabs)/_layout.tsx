@@ -5,20 +5,21 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { BlurView } from 'expo-blur';
 import { Platform, StyleSheet } from 'react-native';
-import { SymbolView } from 'expo-symbols';
+import { SymbolView, SymbolViewProps } from 'expo-symbols';
+import { Ionicons } from '@expo/vector-icons';
 
 // Helper component for cross-platform icons
-function TabIcon({ sfSymbol, ionIcon, color }: { sfSymbol: string; ionIcon: string; color: string }) {
-  // if (Platform.OS === 'ios') {
-  //   return (
-  //     <SymbolView
-  //       name={sfSymbol}
-  //       size={24}
-  //       tintColor={color}
-  //       fallback={<TabBarIcon name={ionIcon} color={color} />}
-  //     />
-  //   );
-  // }
+function TabIcon({ sfSymbol, ionIcon, color }: { sfSymbol: SymbolViewProps['name']; ionIcon: keyof typeof Ionicons.glyphMap; color: string }) {
+  if (Platform.OS === 'ios') {
+    return (
+      <SymbolView
+        name={sfSymbol}
+        size={24}
+        tintColor={color}
+        fallback={<TabBarIcon name={ionIcon} color={color} />}
+      />
+    );
+  }
   return <TabBarIcon name={ionIcon} color={color} />;
 }
 
