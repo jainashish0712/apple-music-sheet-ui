@@ -56,6 +56,24 @@ export function ExpandedPlayer({ scrollComponent }: ExpandedPlayerProps) {
     const colorToUse = currentSong?.artwork_bg_color || "#000000";
     const colors: [string, string, ...string[]] = [colorToUse, shadeColor(colorToUse, -50)];
 
+    useEffect(() => {
+        console.log("60",        isPlaying,
+        position,
+        duration,
+        togglePlayPause,
+        player,
+        currentSong,
+        playNextSong,
+        playPreviousSong);
+    }, [        isPlaying,
+        position,
+        duration,
+        togglePlayPause,
+        player,
+        currentSong,
+        playNextSong,
+        playPreviousSong]);
+
     const handleSkipForward = async () => {
         if (player) {
             player.seekTo(Math.min(duration, position + 10));

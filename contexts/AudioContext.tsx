@@ -15,6 +15,7 @@ interface AudioContextType {
     player: any;
     isPlaying: boolean;
     currentSong: Song | null;
+    setCurrentSong: (song: Song | null) => void;
     position: number;
     duration: number;
     playSound: (song: Song) => Promise<void>;
@@ -22,63 +23,94 @@ interface AudioContextType {
     togglePlayPause: () => Promise<void>;
     playNextSong: () => Promise<void>;
     playPreviousSong: () => Promise<void>;
+    isLoading: boolean;
 }
 
 const AudioContext = createContext<AudioContextType | undefined>(undefined);
 
+const MOBILE_USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
 export function AudioProvider({ children }: { children: React.ReactNode }) {
     const [currentSong, setCurrentSong] = useState<Song | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    
+    // Initialize player with no source initially for speed
     const player = useAudioPlayer();
     const status = useAudioPlayerStatus(player);
 
-    // Watch for song changes and update player source
+    // Error listener
     useEffect(() => {
-        if (currentSong?.mp4_link) {
-            console.log('Replacing source with:', currentSong.mp4_link);
-            player.replace({ uri: currentSong.mp4_link });
-            player.play();
-        }
-    }, [currentSong?.id]);
+        const sub = player.addListener('playbackError', (error) => {
+            console.error('[AudioContext] Playback Error:', error);
+            setIsLoading(false);
+        });
+        return () => sub.remove();
+    }, [player]);
 
-    const playNextSong = useCallback(async () => {
-        const currentIndex = songs.findIndex(song => song.id === currentSong?.id);
-        if (currentIndex === -1) return;
-
-        const nextSong = songs[(currentIndex + 1) % songs.length] as Song;
-        setCurrentSong(nextSong);
-    }, [currentSong]);
-
-    const playPreviousSong = useCallback(async () => {
-        const currentIndex = songs.findIndex(song => song.id === currentSong?.id);
-        if (currentIndex === -1) return;
-
-        const previousIndex = currentIndex === 0 ? songs.length - 1 : currentIndex - 1;
-        const previousSong = songs[previousIndex] as Song;
-        setCurrentSong(previousSong);
-    }, [currentSong]);
-
+    // Handle song finishing
     useEffect(() => {
         if (status.didJustFinish) {
             playNextSong();
         }
-    }, [status.didJustFinish, playNextSong]);
+    }, [status.didJustFinish]);
 
     const playSound = async (song: Song) => {
-        console.log('playSound called for:', song.title);
-        if (currentSong?.id !== song.id) {
+        // FAST PATH: Direct player manipulation
+        console.log('[AudioContext] playSound (IMPERATIVE) for:', song.title);
+        
+        try {
+            setIsLoading(true);
+            
+            // 1. Update UI State (Async, non-blocking for playback)
             setCurrentSong(song);
-        } else {
-            player.play();
+            
+            // 2. Direct Engine Commands
+            player.pause();
+            
+            if (song.mp4_link) {
+                const source = {
+                    uri: song.mp4_link,
+                    headers: {
+                        'User-Agent': MOBILE_USER_AGENT,
+                        'Referer': 'https://yt.omada.cafe/',
+                        'Origin': 'https://yt.omada.cafe/'
+                    }
+                };
+                
+                // Command the engine immediately
+                console.log('[AudioContext] Executing player.replace() and play() immediately');
+                player.replace(source);
+                player.play();
+            }
+            
+            setIsLoading(false);
+        } catch (error) {
+            console.error('[AudioContext] playSound Error:', error);
+            setIsLoading(false);
         }
     };
+
+    const playNextSong = useCallback(async () => {
+        const currentIndex = songs.findIndex(s => s.id === currentSong?.id);
+        if (currentIndex === -1) return;
+        const nextSong = songs[(currentIndex + 1) % songs.length] as Song;
+        playSound(nextSong);
+    }, [currentSong]);
+
+    const playPreviousSong = useCallback(async () => {
+        const currentIndex = songs.findIndex(s => s.id === currentSong?.id);
+        if (currentIndex === -1) return;
+        const previousIndex = currentIndex === 0 ? songs.length - 1 : currentIndex - 1;
+        const previousSong = songs[previousIndex] as Song;
+        playSound(previousSong);
+    }, [currentSong]);
 
     const pauseSound = async () => {
         player.pause();
     };
 
     const togglePlayPause = async () => {
-        console.log('togglePlayPause. Playing:', status.playing);
-        if (status.playing) {
+        if (player.playing) {
             player.pause();
         } else {
             player.play();
@@ -90,6 +122,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
             player,
             isPlaying: status.playing,
             currentSong,
+            setCurrentSong,
             position: status.currentTime,
             duration: status.duration,
             playSound,
@@ -97,6 +130,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
             togglePlayPause,
             playNextSong,
             playPreviousSong,
+            isLoading,
         }}>
             {children}
         </AudioContext.Provider>

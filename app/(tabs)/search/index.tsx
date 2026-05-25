@@ -264,13 +264,15 @@ const categories = [
     }
 ]
 
+const MOBILE_USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
 export default function SearchScreen() {
     const [query, setQuery] = useState('');
     const [results, setResults] = useState<SearchResult[]>([]);
     const [loading, setLoading] = useState(false);
     const [playingId, setPlayingId] = useState<string | null>(null);
     const themeColor = useThemeColor({}, 'text');
-    const { playSound } = useAudio();
+    const { playSound, setCurrentSong } = useAudio();
 
     const handleSearch = async (text: string) => {
         setQuery(text);
@@ -281,7 +283,7 @@ export default function SearchScreen() {
                 const data = await response.json();
                 setResults(data);
             } catch (error) {
-                console.error('Error fetching search results:', error);
+                console.error('[Search] Error fetching results:', error);
             } finally {
                 setLoading(false);
             }
@@ -292,20 +294,53 @@ export default function SearchScreen() {
 
     const handlePlay = async (result: SearchResult) => {
         if (playingId === result.id) return;
-        
+
         try {
+            console.log('[Search] Initializing playback for:', result.title);
             setPlayingId(result.id);
-            const response = await fetch(`https://yt.omada.cafe/api/v1/videos/${result.id}`);
+
+            // Set metadata immediately so UI updates instantly
+            setCurrentSong({
+                id: result.id,
+                title: result.title,
+                artist: result.author,
+                artwork: `https://i.ytimg.com/vi/${result.id}/hqdefault.jpg`,
+                mp4_link: ""
+            });
+            
+            // Standard headers for Invidious/Omada to authorize the client
+            const headers = {
+                'User-Agent': MOBILE_USER_AGENT,
+                'Accept': 'application/json',
+                'Referer': 'https://yt.omada.cafe/',
+                'Origin': 'https://yt.omada.cafe/',
+                'X-Requested-With': 'XMLHttpRequest'
+            };
+
+            const response = await fetch(`https://yt.omada.cafe/api/v1/videos/${result.id}?local=true&region=US`, { headers });
             const data = await response.json();
             
-            // Find best audio format (usually itag 140 is 128kbps m4a)
-            const audioFormat = data.adaptiveFormats.find((f: any) => f.type.startsWith('audio/mp4')) || 
-                                data.adaptiveFormats.find((f: any) => f.type.startsWith('audio/')) ||
-                                data.formatStreams[0];
+            // Prioritize audio-only formats (mp4 container usually most compatible)
+            // Look for itag 140 (128kbps AAC) or any audio/mp4
+            let audioFormat = data.adaptiveFormats?.find((f: any) => f.itag === "140" || f.itag === 140) ||
+                             data.adaptiveFormats?.find((f: any) => f.type?.includes('audio/mp4')) ||
+                             data.adaptiveFormats?.find((f: any) => f.type?.includes('audio/')) ||
+                             data.formatStreams?.find((f: any) => f.type?.includes('audio/')) ||
+                             data.formatStreams?.[0];
             
-            const audioUrl = audioFormat?.url;
+            let audioUrl = audioFormat?.url;
             
             if (audioUrl) {
+                // If it's a direct googlevideo link, it will likely 403 due to IP locking.
+                // We attempt to force proxying through the Omada instance if it's not already proxied.
+                if (audioUrl.includes('googlevideo.com') && !audioUrl.includes('yt.omada.cafe')) {
+                    console.log('[Search] Detected direct GoogleVideo URL, applying proxy wrapper');
+                    // Manual proxy construction for Invidious instances
+                    audioUrl = `https://yt.omada.cafe/videoplayback${audioUrl.substring(audioUrl.indexOf('?'))}`;
+                }
+
+                console.log('[Search] Final Playback URL (start):', audioUrl.substring(0, 50));
+                
                 playSound({
                     id: result.id,
                     title: result.title,
@@ -314,11 +349,12 @@ export default function SearchScreen() {
                     mp4_link: audioUrl
                 });
             } else {
-                Alert.alert('Error', 'No playable audio found for this song.');
+                console.error('[Search] No playable stream found');
+                Alert.alert('Error', 'No playable audio found.');
             }
         } catch (error) {
-            console.error('Error fetching audio details:', error);
-            Alert.alert('Error', 'Failed to load audio for this song.');
+            console.error('[Search] Playback setup error:', error);
+            Alert.alert('Error', 'Failed to load audio.');
         } finally {
             setPlayingId(null);
         }
@@ -326,15 +362,20 @@ export default function SearchScreen() {
 
     const handleDownload = async (result: SearchResult) => {
         try {
-            // We need the actual URL from omada first if we don't have it
-            const response = await fetch(`https://yt.omada.cafe/api/v1/videos/${result.id}`);
+            const response = await fetch(`https://yt.omada.cafe/api/v1/videos/${result.id}?local=true&region=US`, {
+                headers: { 'User-Agent': MOBILE_USER_AGENT }
+            });
             const data = await response.json();
-            const audioFormat = data.adaptiveFormats.find((f: any) => f.type.startsWith('audio/mp4'));
-            const audioUrl = audioFormat?.url;
+            const audioFormat = data.adaptiveFormats?.find((f: any) => f.type?.includes('audio/mp4'));
+            let audioUrl = audioFormat?.url;
 
             if (!audioUrl) {
-                Alert.alert('Error', 'No downloadable audio found.');
+                Alert.alert('Error', 'Download link not found.');
                 return;
+            }
+            
+            if (audioUrl.includes('googlevideo.com') && !audioUrl.includes('yt.omada.cafe')) {
+                audioUrl = `https://yt.omada.cafe/videoplayback${audioUrl.substring(audioUrl.indexOf('?'))}`;
             }
 
             const fileUri = `${FileSystem.documentDirectory}${result.id}.mp4`;
@@ -343,8 +384,8 @@ export default function SearchScreen() {
                 Alert.alert('Success', `Downloaded: ${result.title}`);
             }
         } catch (error) {
-            console.error('Error downloading:', error);
-            Alert.alert('Error', 'Failed to download song');
+            console.error('[Search] Download error:', error);
+            Alert.alert('Error', 'Failed to download.');
         }
     };
 

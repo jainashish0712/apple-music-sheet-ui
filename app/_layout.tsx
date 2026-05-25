@@ -29,6 +29,10 @@ function AnimatedStack() {
     };
   });
 
+  useEffect(() => {
+    console.log("33",isPlaying, togglePlayPause);
+  }, [currentSong, isPlaying]);
+
   return (
     <View style={{ flex: 1 }}>
       <Animated.View style={[styles.stackContainer, animatedStyle]}>
